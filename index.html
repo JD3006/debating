@@ -15,7 +15,7 @@
         // --- STEP 1: Fetch target URL from GitHub ---
         statusElem.innerText = "Fetching redirect target...";
         console.log("[DEBUG] Step 1: Requesting target.json from GitHub...");
-        await sleep(500); // UI delay for readability
+        //await sleep(500); // UI delay for readability
 
         const configUrl = `https://raw.githubusercontent.com/JD3006/debating/main/target.json?t=${Date.now()}`;
         const configRes = await fetch(configUrl, { cache: "no-store" });
@@ -36,7 +36,7 @@
         // --- STEP 2: Probe the ngrok server locally ---
         statusElem.innerText = "Checking if website is online...";
         console.log("[DEBUG] Step 2: Probing ngrok endpoint directly...");
-        await sleep(800);
+        //await sleep(800);
 
         let isOnline = false;
 
@@ -71,12 +71,12 @@
         }
 
         // --- STEP 3: Decision & Action ---
-        await sleep(500);
+        //await sleep(500);
 
         if (isOnline) {
           console.log("%c[DEBUG] All checks passed. Redirecting to destination...", "color: #10b981; font-weight: bold;");
           statusElem.innerText = "Website is online! Redirecting...";
-          await sleep(600);
+          //await sleep(600);
           window.location.replace(targetUrl);
         } else {
           console.log("%c[DEBUG] Website is DOWN. Aborting redirect.", "color: #ef4444; font-weight: bold;");
