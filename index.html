@@ -4,36 +4,51 @@
   <meta charset="UTF-8">
   <title>Redirecting...</title>
   <script>
-    async function isWebsiteUp(url, timeoutMs = 7000) {
+    async function isWebsiteUp(targetUrl, timeoutMs = 6000) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+      // Method 1: Check through corsproxy with ngrok warning bypass header
       try {
-        // Fetch via CORS proxy to read the raw HTML content
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}&t=${Date.now()}`;
-        
-        const response = await fetch(proxyUrl, { signal: controller.signal });
+        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+        const res = await fetch(proxyUrl, {
+          headers: { "ngrok-skip-browser-warning": "true" },
+          signal: controller.signal
+        });
         clearTimeout(timeoutId);
 
-        if (!response.ok) return false;
+        // ngrok returns 404 or 503 when the tunnel is closed/offline
+        if (!res.ok) {
+          return false;
+        }
 
-        const data = await response.json();
-        const html = data.contents || "";
-
-        // Check if ngrok is throwing a tunnel error
-        const isNgrokError = 
-          html.includes("ERR_NGROK_3200") || 
-          html.includes("ERR_NGROK_") || 
-          html.includes("is offline");
-
-        if (isNgrokError) {
+        const html = await res.text();
+        if (html.includes("ERR_NGROK_") || html.includes("is offline")) {
           return false;
         }
 
         return true;
       } catch (err) {
-        clearTimeout(timeoutId);
-        return false;
+        // Method 2: Fallback probe if the first proxy is blocked
+        try {
+          const fallbackUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}&t=${Date.now()}`;
+          const res2 = await fetch(fallbackUrl);
+          if (!res2.ok) return false;
+
+          const data = await res2.json();
+          if (data.status && data.status.http_code >= 400) {
+            return false;
+          }
+
+          const contents = data.contents || "";
+          if (contents.includes("ERR_NGROK_") || contents.includes("is offline")) {
+            return false;
+          }
+
+          return true;
+        } catch (e) {
+          return false;
+        }
       }
     }
 
@@ -44,9 +59,9 @@
         // 1. Fetch target config from GitHub
         const configUrl = `https://raw.githubusercontent.com/JD3006/debating/main/target.json?t=${Date.now()}`;
         const response = await fetch(configUrl, { cache: "no-store" });
-        
+
         if (!response.ok) throw new Error("Could not fetch target configuration.");
-        
+
         const data = await response.json();
 
         if (!data || !data.target) {
@@ -54,7 +69,7 @@
           return;
         }
 
-        // 2. Check if the ngrok endpoint is actually active
+        // 2. Check if the ngrok endpoint is actually active and returning 200 OK
         const siteIsAvailable = await isWebsiteUp(data.target);
 
         if (siteIsAvailable) {
