@@ -4,89 +4,95 @@
   <meta charset="UTF-8">
   <title>Redirecting...</title>
   <script>
-    async function isWebsiteUp(targetUrl, timeoutMs = 6000) {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-      // Method 1: Check through corsproxy with ngrok warning bypass header
-      try {
-        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
-        const res = await fetch(proxyUrl, {
-          headers: { "ngrok-skip-browser-warning": "true" },
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
+    async function checkAndRedirect() {
+      const statusElem = document.getElementById("status-message");
 
-        // ngrok returns 404 or 503 when the tunnel is closed/offline
-        if (!res.ok) {
-          return false;
-        }
-
-        const html = await res.text();
-        if (html.includes("ERR_NGROK_") || html.includes("is offline")) {
-          return false;
-        }
-
-        return true;
-      } catch (err) {
-        // Method 2: Fallback probe if the first proxy is blocked
-        try {
-          const fallbackUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}&t=${Date.now()}`;
-          const res2 = await fetch(fallbackUrl);
-          if (!res2.ok) return false;
-
-          const data = await res2.json();
-          if (data.status && data.status.http_code >= 400) {
-            return false;
-          }
-
-          const contents = data.contents || "";
-          if (contents.includes("ERR_NGROK_") || contents.includes("is offline")) {
-            return false;
-          }
-
-          return true;
-        } catch (e) {
-          return false;
-        }
-      }
-    }
-
-    async function redirect() {
-      const messageElem = document.getElementById("status-message");
+      console.log("%c[DEBUG] Starting health check...", "color: #3b82f6; font-weight: bold;");
 
       try {
-        // 1. Fetch target config from GitHub
+        // --- STEP 1: Fetch target URL from GitHub ---
+        statusElem.innerText = "Fetching redirect target...";
+        console.log("[DEBUG] Step 1: Requesting target.json from GitHub...");
+        await sleep(500); // UI delay for readability
+
         const configUrl = `https://raw.githubusercontent.com/JD3006/debating/main/target.json?t=${Date.now()}`;
-        const response = await fetch(configUrl, { cache: "no-store" });
+        const configRes = await fetch(configUrl, { cache: "no-store" });
 
-        if (!response.ok) throw new Error("Could not fetch target configuration.");
-
-        const data = await response.json();
-
-        if (!data || !data.target) {
-          messageElem.innerText = "the website is down pls contact me";
-          return;
+        if (!configRes.ok) {
+          throw new Error(`Failed to load target.json (HTTP ${configRes.status})`);
         }
 
-        // 2. Check if the ngrok endpoint is actually active and returning 200 OK
-        const siteIsAvailable = await isWebsiteUp(data.target);
+        const data = await configRes.json();
+        const targetUrl = data?.target;
 
-        if (siteIsAvailable) {
-          window.location.replace(data.target);
+        if (!targetUrl) {
+          throw new Error("Target URL is missing in target.json");
+        }
+
+        console.log(`%c[DEBUG] Target URL found: ${targetUrl}`, "color: #10b981;");
+
+        // --- STEP 2: Probe the ngrok server locally ---
+        statusElem.innerText = "Checking if website is online...";
+        console.log("[DEBUG] Step 2: Probing ngrok endpoint directly...");
+        await sleep(800);
+
+        let isOnline = false;
+
+        try {
+          const probeController = new AbortController();
+          const timeout = setTimeout(() => probeController.abort(), 6000);
+
+          // Direct fetch sending the ngrok warning bypass header
+          const probeRes = await fetch(targetUrl, {
+            method: "GET",
+            headers: {
+              "ngrok-skip-browser-warning": "69420"
+            },
+            signal: probeController.signal
+          });
+
+          clearTimeout(timeout);
+          console.log(`[DEBUG] Received HTTP Status: ${probeRes.status}`);
+
+          // If ngrok is offline, it returns 404 (ERR_NGROK_3200) or 503
+          if (probeRes.ok) {
+            console.log("%c[DEBUG] HTTP Status 200 received! Server is UP.", "color: #10b981; font-weight: bold;");
+            isOnline = true;
+          } else {
+            console.warn(`[DEBUG] Server returned error status: ${probeRes.status}. ngrok tunnel is offline.`);
+            isOnline = false;
+          }
+        } catch (fetchErr) {
+          // When ngrok returns 404/ERR_NGROK_3200 without CORS headers, browser fetch rejects
+          console.warn("[DEBUG] Direct probe failed or rejected (ngrok is offline or unreachable):", fetchErr.message);
+          isOnline = false;
+        }
+
+        // --- STEP 3: Decision & Action ---
+        await sleep(500);
+
+        if (isOnline) {
+          console.log("%c[DEBUG] All checks passed. Redirecting to destination...", "color: #10b981; font-weight: bold;");
+          statusElem.innerText = "Website is online! Redirecting...";
+          await sleep(600);
+          window.location.replace(targetUrl);
         } else {
-          messageElem.innerText = "the website is down pls contact me";
+          console.log("%c[DEBUG] Website is DOWN. Aborting redirect.", "color: #ef4444; font-weight: bold;");
+          statusElem.innerText = "the website is down pls contact me";
         }
+
       } catch (err) {
-        console.error(err);
-        messageElem.innerText = "the website is down pls contact me";
+        console.error("%c[DEBUG] Critical failure during check:", "color: #ef4444;", err.message);
+        statusElem.innerText = "the website is down pls contact me";
       }
     }
 
-    window.addEventListener("DOMContentLoaded", redirect);
+    window.addEventListener("DOMContentLoaded", checkAndRedirect);
   </script>
 </head>
-<body style="font-family: sans-serif; text-align: center; margin-top: 50px;">
-  <p id="status-message">Checking website availability...</p>
+<body style="font-family: sans-serif; text-align: center; margin-top: 60px;">
+  <p id="status-message" style="font-size: 1.2rem; color: #333;">Initializing...</p>
 </body>
 </html>
