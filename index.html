@@ -6,16 +6,13 @@
   <script>
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-    // Fetches the target URL instantly without GitHub's 5-minute raw CDN cache
+    // 1. Fetch latest target from GitHub instantly (no 5-minute CDN cache)
     async function getLatestTarget() {
-      // 1. Primary method: GitHub API (Instant, 0 cache delay)
       try {
         const apiUrl = `https://api.github.com/repos/JD3006/debating/contents/target.json?t=${Date.now()}`;
         const apiRes = await fetch(apiUrl, {
           cache: "no-store",
-          headers: {
-            "Accept": "application/vnd.github.v3.raw" // Tells GitHub to return the raw JSON file instantly
-          }
+          headers: { "Accept": "application/vnd.github.v3.raw" }
         });
 
         if (apiRes.ok) {
@@ -23,14 +20,66 @@
           if (json && json.target) return json.target;
         }
       } catch (e) {
-        console.warn("[DEBUG] GitHub API failed, attempting raw fallback...", e);
+        console.warn("[DEBUG] GitHub API failed, using raw fallback...", e);
       }
 
-      // 2. Fallback method: raw.githubusercontent.com
       const rawUrl = `https://raw.githubusercontent.com/JD3006/debating/main/target.json?t=${Date.now()}`;
       const rawRes = await fetch(rawUrl, { cache: "no-store" });
       const rawJson = await rawRes.json();
       return rawJson?.target;
+    }
+
+    // 2. Health check that works locally for both normal sites and ngrok
+    async function isTargetOnline(url) {
+      const isNgrok = url.includes("ngrok");
+
+      if (isNgrok) {
+        console.log("[DEBUG] Detected ngrok target. Inspecting tunnel status...");
+        try {
+          // Free open-source check for ngrok error codes (No API Key required)
+          const checkUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}&t=${Date.now()}`;
+          const res = await fetch(checkUrl);
+
+          if (!res.ok) return false;
+
+          const data = await res.json();
+          const httpCode = data.status ? data.status.http_code : 200;
+          const contents = (data.contents || "").toLowerCase();
+
+          // Check if ngrok is returning 404 or tunnel down error
+          if (httpCode >= 400 || contents.includes("err_ngrok_") || contents.includes("is offline")) {
+            console.warn(`[DEBUG] ngrok tunnel is OFFLINE (Status: ${httpCode}, ERR_NGROK detected).`);
+            return false;
+          }
+
+          console.log("[DEBUG] ngrok tunnel is ACTIVE and responded 200 OK!");
+          return true;
+        } catch (err) {
+          console.warn("[DEBUG] ngrok inspection failed:", err);
+          return false;
+        }
+      } else {
+        console.log("[DEBUG] Detected standard web target. Probing connection directly...");
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 5000);
+
+          // Standard no-cors probe: No custom headers = No preflight OPTIONS CORS blocks
+          await fetch(url, {
+            method: "GET",
+            mode: "no-cors",
+            cache: "no-store",
+            signal: controller.signal
+          });
+
+          clearTimeout(timeout);
+          console.log("[DEBUG] Target server reached successfully!");
+          return true;
+        } catch (err) {
+          console.warn("[DEBUG] Direct probe failed (DNS or server unreachable):", err.message);
+          return false;
+        }
+      }
     }
 
     async function checkAndRedirect() {
@@ -39,58 +88,31 @@
       console.log("%c[DEBUG] Starting redirect check...", "color: #3b82f6; font-weight: bold;");
 
       try {
-        statusElem.innerText = "Fetching latest redirect target...";
-        await sleep(500);
+        statusElem.innerText = "Fetching redirect target...";
+        await sleep(400);
 
         const targetUrl = await getLatestTarget();
 
         if (!targetUrl) {
-          throw new Error("Target URL is missing or could not be loaded.");
+          throw new Error("Target URL is missing in target.json");
         }
 
         console.log(`%c[DEBUG] Target URL: ${targetUrl}`, "color: #10b981; font-weight: bold;");
 
         statusElem.innerText = "Checking if website is online...";
-        console.log("[DEBUG] Probing target endpoint...");
-        await sleep(800);
+        await sleep(600);
 
-        let isOnline = false;
+        const isOnline = await isTargetOnline(targetUrl);
 
-        try {
-          const probeController = new AbortController();
-          const timeout = setTimeout(() => probeController.abort(), 6000);
-
-          const probeRes = await fetch(targetUrl, {
-            method: "GET",
-            headers: {
-              "ngrok-skip-browser-warning": "69420"
-            },
-            signal: probeController.signal
-          });
-
-          clearTimeout(timeout);
-          console.log(`[DEBUG] Target HTTP Status: ${probeRes.status}`);
-
-          if (probeRes.ok) {
-            isOnline = true;
-          } else {
-            console.warn(`[DEBUG] Target returned HTTP ${probeRes.status}. ngrok is offline.`);
-            isOnline = false;
-          }
-        } catch (fetchErr) {
-          console.warn("[DEBUG] Direct probe failed (tunnel offline or blocked):", fetchErr.message);
-          isOnline = false;
-        }
-
-        await sleep(500);
+        await sleep(400);
 
         if (isOnline) {
-          console.log("%c[DEBUG] Site is online! Redirecting...", "color: #10b981; font-weight: bold;");
+          console.log("%c[DEBUG] Status: ONLINE. Redirecting now...", "color: #10b981; font-weight: bold;");
           statusElem.innerText = "Website is online! Redirecting...";
-          await sleep(600);
+          await sleep(500);
           window.location.replace(targetUrl);
         } else {
-          console.log("%c[DEBUG] Site is DOWN. Aborting redirect.", "color: #ef4444; font-weight: bold;");
+          console.log("%c[DEBUG] Status: OFFLINE. Showing error message.", "color: #ef4444; font-weight: bold;");
           statusElem.innerText = "the website is down pls contact me";
         }
 
