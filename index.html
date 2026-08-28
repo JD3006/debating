@@ -89,7 +89,7 @@
 
       try {
         statusElem.innerText = "Fetching redirect target...";
-        await sleep(400);
+        //await sleep(400);
 
         const targetUrl = await getLatestTarget();
 
@@ -100,16 +100,16 @@
         console.log(`%c[DEBUG] Target URL: ${targetUrl}`, "color: #10b981; font-weight: bold;");
 
         statusElem.innerText = "Checking if website is online...";
-        await sleep(600);
+        //await sleep(600);
 
         const isOnline = await isTargetOnline(targetUrl);
 
-        await sleep(400);
+        //await sleep(400);
 
         if (isOnline) {
           console.log("%c[DEBUG] Status: ONLINE. Redirecting now...", "color: #10b981; font-weight: bold;");
           statusElem.innerText = "Website is online! Redirecting...";
-          await sleep(500);
+          //await sleep(500);
           window.location.replace(targetUrl);
         } else {
           console.log("%c[DEBUG] Status: OFFLINE. Showing error message.", "color: #ef4444; font-weight: bold;");
