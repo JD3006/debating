@@ -6,37 +6,53 @@
   <script>
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+    // Fetches the target URL instantly without GitHub's 5-minute raw CDN cache
+    async function getLatestTarget() {
+      // 1. Primary method: GitHub API (Instant, 0 cache delay)
+      try {
+        const apiUrl = `https://api.github.com/repos/JD3006/debating/contents/target.json?t=${Date.now()}`;
+        const apiRes = await fetch(apiUrl, {
+          cache: "no-store",
+          headers: {
+            "Accept": "application/vnd.github.v3.raw" // Tells GitHub to return the raw JSON file instantly
+          }
+        });
+
+        if (apiRes.ok) {
+          const json = await apiRes.json();
+          if (json && json.target) return json.target;
+        }
+      } catch (e) {
+        console.warn("[DEBUG] GitHub API failed, attempting raw fallback...", e);
+      }
+
+      // 2. Fallback method: raw.githubusercontent.com
+      const rawUrl = `https://raw.githubusercontent.com/JD3006/debating/main/target.json?t=${Date.now()}`;
+      const rawRes = await fetch(rawUrl, { cache: "no-store" });
+      const rawJson = await rawRes.json();
+      return rawJson?.target;
+    }
+
     async function checkAndRedirect() {
       const statusElem = document.getElementById("status-message");
 
-      console.log("%c[DEBUG] Starting health check...", "color: #3b82f6; font-weight: bold;");
+      console.log("%c[DEBUG] Starting redirect check...", "color: #3b82f6; font-weight: bold;");
 
       try {
-        // --- STEP 1: Fetch target URL from GitHub ---
-        statusElem.innerText = "Fetching redirect target...";
-        console.log("[DEBUG] Step 1: Requesting target.json from GitHub...");
-        //await sleep(500); // UI delay for readability
+        statusElem.innerText = "Fetching latest redirect target...";
+        await sleep(500);
 
-        const configUrl = `https://raw.githubusercontent.com/JD3006/debating/main/target.json?t=${Date.now()}`;
-        const configRes = await fetch(configUrl, { cache: "no-store" });
-
-        if (!configRes.ok) {
-          throw new Error(`Failed to load target.json (HTTP ${configRes.status})`);
-        }
-
-        const data = await configRes.json();
-        const targetUrl = data?.target;
+        const targetUrl = await getLatestTarget();
 
         if (!targetUrl) {
-          throw new Error("Target URL is missing in target.json");
+          throw new Error("Target URL is missing or could not be loaded.");
         }
 
-        console.log(`%c[DEBUG] Target URL found: ${targetUrl}`, "color: #10b981;");
+        console.log(`%c[DEBUG] Target URL: ${targetUrl}`, "color: #10b981; font-weight: bold;");
 
-        // --- STEP 2: Probe the ngrok server locally ---
         statusElem.innerText = "Checking if website is online...";
-        console.log("[DEBUG] Step 2: Probing ngrok endpoint directly...");
-        //await sleep(800);
+        console.log("[DEBUG] Probing target endpoint...");
+        await sleep(800);
 
         let isOnline = false;
 
@@ -44,7 +60,6 @@
           const probeController = new AbortController();
           const timeout = setTimeout(() => probeController.abort(), 6000);
 
-          // Direct fetch sending the ngrok warning bypass header
           const probeRes = await fetch(targetUrl, {
             method: "GET",
             headers: {
@@ -54,37 +69,33 @@
           });
 
           clearTimeout(timeout);
-          console.log(`[DEBUG] Received HTTP Status: ${probeRes.status}`);
+          console.log(`[DEBUG] Target HTTP Status: ${probeRes.status}`);
 
-          // If ngrok is offline, it returns 404 (ERR_NGROK_3200) or 503
           if (probeRes.ok) {
-            console.log("%c[DEBUG] HTTP Status 200 received! Server is UP.", "color: #10b981; font-weight: bold;");
             isOnline = true;
           } else {
-            console.warn(`[DEBUG] Server returned error status: ${probeRes.status}. ngrok tunnel is offline.`);
+            console.warn(`[DEBUG] Target returned HTTP ${probeRes.status}. ngrok is offline.`);
             isOnline = false;
           }
         } catch (fetchErr) {
-          // When ngrok returns 404/ERR_NGROK_3200 without CORS headers, browser fetch rejects
-          console.warn("[DEBUG] Direct probe failed or rejected (ngrok is offline or unreachable):", fetchErr.message);
+          console.warn("[DEBUG] Direct probe failed (tunnel offline or blocked):", fetchErr.message);
           isOnline = false;
         }
 
-        // --- STEP 3: Decision & Action ---
-        //await sleep(500);
+        await sleep(500);
 
         if (isOnline) {
-          console.log("%c[DEBUG] All checks passed. Redirecting to destination...", "color: #10b981; font-weight: bold;");
+          console.log("%c[DEBUG] Site is online! Redirecting...", "color: #10b981; font-weight: bold;");
           statusElem.innerText = "Website is online! Redirecting...";
-          //await sleep(600);
+          await sleep(600);
           window.location.replace(targetUrl);
         } else {
-          console.log("%c[DEBUG] Website is DOWN. Aborting redirect.", "color: #ef4444; font-weight: bold;");
+          console.log("%c[DEBUG] Site is DOWN. Aborting redirect.", "color: #ef4444; font-weight: bold;");
           statusElem.innerText = "the website is down pls contact me";
         }
 
       } catch (err) {
-        console.error("%c[DEBUG] Critical failure during check:", "color: #ef4444;", err.message);
+        console.error("%c[DEBUG] Error:", "color: #ef4444;", err.message);
         statusElem.innerText = "the website is down pls contact me";
       }
     }
