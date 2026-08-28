@@ -4,27 +4,62 @@
   <meta charset="UTF-8">
   <title>Redirecting...</title>
   <script>
-    async function redirect() {
-      try {
-        const url = `https://raw.githubusercontent.com/JD3006/debating/main/target.json?t=${new Date().getTime()}`;
-        
-        const response = await fetch(url, { cache: "no-store" });
-        const data = await response.json();
+    async function isWebsiteUp(url, timeoutMs = 5000) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-        if (data && data.target) {
-          window.location.replace(data.target);
-        } else {
-          document.body.innerText = "Target URL not set.";
-        }
+      try {
+        // 'no-cors' allows the browser to probe external domains without CORS blocks.
+        // If the server is offline, DNS fails, or the request times out, it throws an error.
+        await fetch(url, {
+          method: "GET",
+          mode: "no-cors",
+          cache: "no-store",
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        return true;
       } catch (err) {
-        document.body.innerText = "Failed to load redirect target.";
-        console.error(err);
+        clearTimeout(timeoutId);
+        return false;
       }
     }
-    redirect();
+
+    async function redirect() {
+      const messageElem = document.getElementById("status-message");
+
+      try {
+        // 1. Fetch the target URL from GitHub
+        const configUrl = `https://raw.githubusercontent.com/JD3006/debating/main/target.json?t=${new Date().getTime()}`;
+        const response = await fetch(configUrl, { cache: "no-store" });
+        
+        if (!response.ok) throw new Error("Could not fetch target config.");
+        
+        const data = await response.json();
+
+        if (!data || !data.target) {
+          messageElem.innerText = "The website is down, please contact me.";
+          return;
+        }
+
+        // 2. Check if the target site responds
+        const siteIsAvailable = await isWebsiteUp(data.target);
+
+        if (siteIsAvailable) {
+          window.location.replace(data.target);
+        } else {
+          messageElem.innerText = "The website is down, please contact me.";
+        }
+      } catch (err) {
+        console.error(err);
+        messageElem.innerText = "The website is down, please contact me.";
+      }
+    }
+
+    window.addEventListener("DOMContentLoaded", redirect);
   </script>
 </head>
 <body style="font-family: sans-serif; text-align: center; margin-top: 50px;">
-  <p></p>
+  <p id="status-message">Checking website availability...</p>
 </body>
 </html>
